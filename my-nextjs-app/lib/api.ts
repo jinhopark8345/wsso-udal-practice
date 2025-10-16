@@ -10,6 +10,7 @@ export async function getToken(): Promise<string> {
   const res = await fetch(`${API_BASE}/token`, { method: "POST" });
   if (!res.ok) throw new Error("Failed to get token");
   const data: TokenResponse = await res.json();
+
   return data.access_token;
 }
 

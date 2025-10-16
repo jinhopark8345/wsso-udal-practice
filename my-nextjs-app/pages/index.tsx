@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { log, newReqId } from "../lib/logger";
 
 type Data = { user_id: string; data: string };
 
@@ -7,8 +8,14 @@ export default function Home() {
   const [status, setStatus] = useState("Logged out");
 
   const login = async () => {
+    const reqId = newReqId();
+    log(`[UI] Click: Login (reqId=${reqId})`);
     setStatus("Logging in…");
-    const r = await fetch("/api/login", { method: "POST" });
+    const r = await fetch("/api/login", {
+      method: "POST",
+      headers: { "x-request-id": reqId },
+    });
+    log(`[UI] /api/login status=${r.status} (reqId=${reqId})`);
     if (!r.ok) {
       setStatus("Login failed");
       return;
@@ -17,16 +24,22 @@ export default function Home() {
   };
 
   const fetchSecure = async () => {
+    const reqId = newReqId();
+    log(`[UI] Click: Fetch protected data (reqId=${reqId})`);
     setStatus("Fetching secure data…");
-    const r = await fetch("/api/secure");
+    const r = await fetch("/api/secure", {
+      headers: { "x-request-id": reqId },
+    });
+    log(`[UI] /api/secure status=${r.status} (reqId=${reqId})`);
     const json = await r.json();
     if (!r.ok) {
       setStatus("Fetch failed");
-      console.error(json);
+      log(`[UI] /api/secure error=`, json, `(reqId=${reqId})`);
       return;
     }
     setData(json);
     setStatus("Data loaded");
+    log(`[UI] Data loaded:`, json, `(reqId=${reqId})`);
   };
 
   return (

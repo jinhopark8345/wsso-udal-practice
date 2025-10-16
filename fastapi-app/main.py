@@ -1,9 +1,18 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
+import logging
+import time
 from typing import Optional
 import jwt
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta
+
+# ---------- Logging config ----------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [backend] %(message)s",
+)
+log = logging.getLogger("backend")
 
 app = FastAPI()
 
@@ -27,39 +36,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Helper function to decode JWT and validate it
+# ---------- Middleware to log each request ----------
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    req_id = request.headers.get("x-request-id", "(none)")
+    log.info(f"{request.method} {request.url.path} start reqId={req_id}")
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        duration = (time.time() - start) * 1000
+        log.exception(f"{request.method} {request.url.path} EXC reqId={req_id} durMs={duration:.1f}")
+        raise
+    duration = (time.time() - start) * 1000
+    log.info(f"{request.method} {request.url.path} end status={response.status_code} reqId={req_id} durMs={duration:.1f}")
+    return response
+
+# ---------- JWT helpers ----------
 def decode_jwt(token: str):
+    log.info(f"decode_jwt called (token len={len(token)})")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload  # Payload contains the user info (e.g., user_id)
+        log.info("decode_jwt OK")
+        return payload
     except jwt.ExpiredSignatureError:
+        log.warning("decode_jwt expired")
         raise HTTPException(status_code=401, detail="Token has expired")
     except jwt.InvalidTokenError:
+        log.warning("decode_jwt invalid")
         raise HTTPException(status_code=401, detail="Invalid token")
 
-
-# Mock UDAL function (simulating data access)
 def get_data_from_udal(user_id: str):
-    # Simulate accessing a data layer
+    log.info(f"UDAL get data for user_id={user_id}")
+    # pretend to call UDAL here
     return {"user_id": user_id, "data": "Sensitive data from UDAL"}
 
-
-# FastAPI endpoint requiring JWT token
+# ---------- Routes ----------
 @app.get("/api/data")
 async def get_data(token: str = Depends(oauth2_scheme)):
-    # Validate the JWT token
-    decoded_token = decode_jwt(token)
-    user_id = decoded_token.get("sub")  # Assuming 'sub' is user_id in JWT payload
-
-    # Get data using UDAL (Unified Data Access Layer)
+    payload = decode_jwt(token)
+    user_id = payload.get("sub", "unknown")
     data = get_data_from_udal(user_id)
-
     return data
 
-
-# This is just to simulate obtaining a token (in real-world, you would integrate with WSSO here)
 @app.post("/token")
 def generate_token():
-    expiration = datetime.utcnow() + timedelta(hours=1)
-    token = jwt.encode({"sub": "user123", "exp": expiration}, SECRET_KEY, algorithm=ALGORITHM)
+    exp = datetime.utcnow() + timedelta(hours=1)
+    token = jwt.encode({"sub": "user123", "exp": exp}, SECRET_KEY, algorithm="HS256")
+    log.info("Issued token for sub=user123 exp=+1h")
     return {"access_token": token, "token_type": "bearer"}
+
+
